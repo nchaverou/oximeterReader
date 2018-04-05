@@ -14,7 +14,9 @@ from Qtpy.Qt import QtGui
 
 # Color of the background of the bpm and pulse images
 dfltBkgColor = QtGui.QColor(0, 0, 0)
-# Color of the bmpColor
+# Color of the pulse curve
+pulseColor = QtGui.QColor(125, 125, 125)
+# Color of the bmp curve
 bmpColor = QtGui.QColor(227, 35, 15)
 # Color of the o2 curve
 o2Color = QtGui.QColor(0, 215, 234)
@@ -25,12 +27,18 @@ contractionColor = QtGui.QColor(234, 204, 0)
 # Color of the breatheline / button
 breatheColor = QtGui.QColor(234, 121, 0)
 # Color of the grid lines
-gridColor = QtGui.QColor(125, 125, 125)
+gridColColor = QtGui.QColor(125, 125, 125)
+gridLineColor = QtGui.QColor(62, 62, 62)
+gridLine100Color = QtGui.QColor(218, 238, 0)
+# Frequency of the grid columns (a column every X seconds)
+timeColFrequency = 20  # seconds
 # Frequency of the grid (a line every X seconds)
-gridFrequency = 20  # seconds
+bpmLineFrequency = 10  # pulse
 # Width of the curves
 curvePixelSize = 3
 # Width of the pulse image
-widthPulseImage = 30
+widthPulseImage = 250
+widthBpmCurveImage = 700
+heightImages = 300
 # Number of minutes to monitor
 dfltMinutes = 5

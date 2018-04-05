@@ -15,6 +15,7 @@ import cms50v46
 import utils
 import config
 import datetime
+import math
 from enum import Enum
 from functools import partial
 from threading import Thread, Lock
@@ -54,23 +55,31 @@ class ReaderUIUpdater(Thread):
         self.events = []
         self.apneaTime = None
         self.apneaStatus = ReaderEvent.END
-        self.pulseMaxValue = 127
+        self.pulseMaxValue = 100
         self.bpmMaxValue = 127
-        self.o2MaxValue = 102
+        self.o2MaxValue = 127
+        self.pulseFrequency = 2  # how many samples we skip
         self.bpmFrequency = 60  # based on quick calculation, the oxymeter runs at 60hz
         self.updateRate = int(self.bpmFrequency / (self.ui.bpmImage.width() / (int(self.ui.minuteField.value()) * 60)))
+        self.drawBpmLines()
+        self.previousYPulse = 0
 
-    """ Update the pulse image """
-    def updatePulseImage(self, liveDataSample):
+    """ Update the pulse images """
+    def updatePulseImage(self, iSample, liveDataSample):
         pulseValue = min(liveDataSample[3], self.pulseMaxValue)
+        pulseXPixel = iSample % self.ui.pulseImage.width()
         pulseYPixel = int(pulseValue / self.pulseMaxValue * self.ui.pulseImage.height())
-        pixelColor = QtGui.QColor()
+        #pixelColor = QtGui.QColor()
+        #pixelColor.setHsl(pulseYPixel / self.ui.pulseImage.height() * 255, 255, 127)
+        pixelColor = config.pulseColor
+        lineShift = int((pulseYPixel - self.previousYPulse) / 2)
+        # clean pulse image
+        bandWidth = int(self.ui.pulseImage.width() * 0.2)
+        utils.drawBox(self.ui.pulseImage, pulseXPixel + bandWidth / 2, self.ui.pulseImage.height() / 2, bandWidth, self.ui.pulseImage.height(), config.dfltBkgColor)
         # update pulse image
-        self.ui.pulseImage.fill(QtCore.Qt.black)
-        for iY in range(pulseYPixel):
-            pixelColor.setHsl(iY / self.ui.pulseImage.height() * 255, 255, 127)
-            utils.drawBox(self.ui.pulseImage, int(self.ui.pulseImage.width() / 2), self.ui.pulseImage.height() - iY - 1, self.ui.pulseImage.width(), 1, pixelColor)
+        utils.drawBox(self.ui.pulseImage, pulseXPixel, self.ui.pulseImage.height() - pulseYPixel - 1 + lineShift, config.curvePixelSize, config.curvePixelSize + abs(lineShift * 2), pixelColor)
         self.ui.pulseImageHolder.setPixmap(QtGui.QPixmap.fromImage(self.ui.pulseImage))
+        self.previousYPulse = pulseYPixel
 
     """ Update the bpm image """
     def updateBpmImage(self, iSample, liveDataSample):
@@ -89,11 +98,20 @@ class ReaderUIUpdater(Thread):
     def drawLineBpmImage(self, iSample, color):
         utils.drawBox(self.ui.bpmImage, iSample, self.ui.bpmImage.height() / 2, config.curvePixelSize + 2, self.ui.bpmImage.height(), color)
 
-    """ Draw the grid """
-    def drawGrid(self, iSample):
-        gridSampleSize = int(self.ui.bpmImage.width() / (int(self.ui.minuteField.value()) * 60) * config.gridFrequency)
-        for iGrid in range(iSample, self.ui.bpmImage.width(), gridSampleSize):
-            utils.drawBox(self.ui.bpmImage, iGrid, self.ui.bpmImage.height() / 2, 1, self.ui.bpmImage.height(), config.gridColor)
+    """ Draw the time cols """
+    def drawTimeCols(self, iSample):
+        colSampleSize = math.ceil(self.ui.bpmImage.width() / (self.ui.minuteField.value() * 60) * config.timeColFrequency)
+        for iGrid in range(iSample, self.ui.bpmImage.width(), colSampleSize):
+            utils.drawBox(self.ui.bpmImage, iGrid, self.ui.bpmImage.height() / 2, 1, self.ui.bpmImage.height(), config.gridColColor)
+
+    """ Draw the bpm lines """
+    def drawBpmLines(self):
+        lineSampleSize = math.ceil(self.ui.bpmImage.height() / self.bpmMaxValue * config.bpmLineFrequency)
+        for iGrid in range(0, self.ui.bpmImage.height(), lineSampleSize):
+            utils.drawBox(self.ui.bpmImage, self.ui.bpmImage.width() / 2, self.ui.bpmImage.height() - iGrid -1, self.ui.bpmImage.width(), 1, config.gridLineColor)
+        # draw a specific line for the mark 100
+        lineSamplePixel = math.ceil(self.ui.bpmImage.height() / self.bpmMaxValue * 100)
+        utils.drawBox(self.ui.bpmImage, self.ui.bpmImage.width() / 2, self.ui.bpmImage.height() - lineSamplePixel - 1, self.ui.bpmImage.width(), 1, config.gridLine100Color)
 
     """ Update time """
     def updateTimer(self):
@@ -135,7 +153,7 @@ class ReaderUIUpdater(Thread):
             if event == ReaderEvent.APNEA:
                 self.apneaTime = datetime.datetime.now()
                 self.drawLineBpmImage(iSample, config.apneaColor)
-                self.drawGrid(iSample)
+                self.drawTimeCols(iSample)
                 self.apneaStatus = ReaderEvent.APNEA
             elif event == ReaderEvent.CONTRACTION:
                 self.drawLineBpmImage(iSample, config.contractionColor)
@@ -147,7 +165,7 @@ class ReaderUIUpdater(Thread):
 
     """ Main thread run, read the packet loop """
     def run(self):
-        bpmSample = 0
+        iSample = 0
         for liveData in self.oximeter.getLiveData():
             # print(liveData)
             if self.checkOximeterStatus() is False:
@@ -155,12 +173,13 @@ class ReaderUIUpdater(Thread):
             liveDataSample = liveData.getCsvData()
             self.ui.bpmValueLabel.setText(str(liveDataSample[1]))
             self.ui.o2ValueLabel.setText(str(liveDataSample[2]) + '%')
-            self.updatePulseImage(liveDataSample)
-            if bpmSample % self.updateRate == 0:
-                self.consumeEvent(int(bpmSample / self.updateRate))
-                self.updateBpmImage(int(bpmSample / self.updateRate), liveDataSample)
+            if iSample % self.pulseFrequency == 0:
+                self.updatePulseImage(int(iSample / self.pulseFrequency), liveDataSample)
+            if iSample % self.updateRate == 0:
+                self.consumeEvent(int(iSample / self.updateRate))
+                self.updateBpmImage(int(iSample / self.updateRate), liveDataSample)
                 self.updateTimer()
-            bpmSample += 1
+            iSample += 1
         self.oximeter.disconnect()
         self.checkOximeterStatus()
 
@@ -175,7 +194,7 @@ class ReaderUI(QtWidgets.QMainWindow):
         self.setWindowIcon(QtGui.QIcon(utils.getIconsDir() + "oxygen.png"))
         textFont = QtGui.QFont( "Arial", 15, QtGui.QFont.Bold)
         self.windowSize = None
-        self.bmpImageSize = QtCore.QSize(900, 300)
+        self.bmpImageSize = QtCore.QSize(config.widthBpmCurveImage, config.heightImages)
 
         # Main Layout
         centralWidget = QtWidgets.QWidget()
@@ -240,10 +259,9 @@ class ReaderUI(QtWidgets.QMainWindow):
         controlLayout.addWidget(self.contractionButton)
         controlLayout.addWidget(self.breatheButton)
         controlLayout.addWidget(self.resetButton)
-
         bottomLayout.addWidget(controlWidget, 0, 0, QtCore.Qt.AlignTop)
 
-        # pulse image
+        # pulse curve image
         self.pulseImage = QtGui.QImage(config.widthPulseImage, self.bmpImageSize.height(), QtGui.QImage.Format_RGB32)
         self.pulseImage.fill(config.dfltBkgColor)
         self.pulseImageHolder = QtWidgets.QLabel()
