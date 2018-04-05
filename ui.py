@@ -13,23 +13,12 @@
 import cms50v45
 import cms50v46
 import utils
+import config
 import datetime
 from enum import Enum
 from functools import partial
 from threading import Thread, Lock
 from Qtpy.Qt import QtCore, QtGui, QtWidgets
-
-""" Dirty config """
-dfltBkgColor = QtCore.Qt.black
-bmpColor = QtGui.QColor(227, 35, 15)
-o2Color = QtGui.QColor(0, 215, 234)
-apneaColor = QtGui.QColor(0, 146, 14)
-contractionColor = QtGui.QColor(234, 204, 0)
-breatheColor = QtGui.QColor(234, 121, 0)
-gridColor = QtGui.QColor(125, 125, 125)
-gridFrequency = 20  # seconds
-curvePixelSize = 3
-widthPulseImage = 30
 
 
 class ReaderEvent(Enum):
@@ -59,8 +48,8 @@ class ReaderUIUpdater(Thread):
         self.threadActive = self.oximeter.isConnected()
         self.eventLock = Lock()
         # reset images
-        self.ui.pulseImage.fill(dfltBkgColor)
-        self.ui.bpmImage.fill(dfltBkgColor)
+        self.ui.pulseImage.fill(config.dfltBkgColor)
+        self.ui.bpmImage.fill(config.dfltBkgColor)
         # Config & internal var
         self.events = []
         self.apneaTime = None
@@ -68,7 +57,6 @@ class ReaderUIUpdater(Thread):
         self.pulseMaxValue = 127
         self.bpmMaxValue = 127
         self.o2MaxValue = 102
-        self.bpmSample = 0
         self.bpmFrequency = 60  # based on quick calculation, the oxymeter runs at 60hz
         self.updateRate = int(self.bpmFrequency / (self.ui.bpmImage.width() / (int(self.ui.minuteField.value()) * 60)))
 
@@ -93,19 +81,19 @@ class ReaderUIUpdater(Thread):
         o2XPixel = iSample
         o2YPixel = int(o2Value / self.o2MaxValue * self.ui.bpmImage.height())
         # draw pixel
-        utils.drawBox(self.ui.bpmImage, bpmXPixel, self.ui.bpmImage.height() - bpmYPixel - 1, curvePixelSize, curvePixelSize, bmpColor)
-        utils.drawBox(self.ui.bpmImage, o2XPixel, self.ui.bpmImage.height() - o2YPixel - 1, curvePixelSize, curvePixelSize, o2Color)
+        utils.drawBox(self.ui.bpmImage, bpmXPixel, self.ui.bpmImage.height() - bpmYPixel - 1, config.curvePixelSize, config.curvePixelSize, config.bmpColor)
+        utils.drawBox(self.ui.bpmImage, o2XPixel, self.ui.bpmImage.height() - o2YPixel - 1, config.curvePixelSize, config.curvePixelSize, config.o2Color)
         self.ui.bpmImageHolder.setPixmap(QtGui.QPixmap.fromImage(self.ui.bpmImage))
 
     """ Update the bpm image with an event line """
     def drawLineBpmImage(self, iSample, color):
-        utils.drawBox(self.ui.bpmImage, iSample, self.ui.bpmImage.height() / 2, curvePixelSize + 2, self.ui.bpmImage.height(), color)
+        utils.drawBox(self.ui.bpmImage, iSample, self.ui.bpmImage.height() / 2, config.curvePixelSize + 2, self.ui.bpmImage.height(), color)
 
     """ Draw the grid """
     def drawGrid(self, iSample):
-        gridSampleSize = int(self.ui.bpmImage.width() / (int(self.ui.minuteField.value()) * 60) * gridFrequency)
+        gridSampleSize = int(self.ui.bpmImage.width() / (int(self.ui.minuteField.value()) * 60) * config.gridFrequency)
         for iGrid in range(iSample, self.ui.bpmImage.width(), gridSampleSize):
-            utils.drawBox(self.ui.bpmImage, iGrid, self.ui.bpmImage.height() / 2, 1, self.ui.bpmImage.height(), gridColor)
+            utils.drawBox(self.ui.bpmImage, iGrid, self.ui.bpmImage.height() / 2, 1, self.ui.bpmImage.height(), config.gridColor)
 
     """ Update time """
     def updateTimer(self):
@@ -146,20 +134,20 @@ class ReaderUIUpdater(Thread):
         for event in self.events:
             if event == ReaderEvent.APNEA:
                 self.apneaTime = datetime.datetime.now()
-                self.drawLineBpmImage(iSample, apneaColor)
+                self.drawLineBpmImage(iSample, config.apneaColor)
                 self.drawGrid(iSample)
                 self.apneaStatus = ReaderEvent.APNEA
             elif event == ReaderEvent.CONTRACTION:
-                self.drawLineBpmImage(iSample, contractionColor)
+                self.drawLineBpmImage(iSample, config.contractionColor)
             elif event == ReaderEvent.BREATHE:
-                self.drawLineBpmImage(iSample, breatheColor)
+                self.drawLineBpmImage(iSample, config.breatheColor)
                 self.apneaStatus = ReaderEvent.BREATHE
         self.events.clear()
         self.eventLock.release()
 
     """ Main thread run, read the packet loop """
     def run(self):
-        self.bpmSample = 0
+        bpmSample = 0
         for liveData in self.oximeter.getLiveData():
             # print(liveData)
             if self.checkOximeterStatus() is False:
@@ -168,11 +156,11 @@ class ReaderUIUpdater(Thread):
             self.ui.bpmValueLabel.setText(str(liveDataSample[1]))
             self.ui.o2ValueLabel.setText(str(liveDataSample[2]) + '%')
             self.updatePulseImage(liveDataSample)
-            if self.bpmSample % self.updateRate == 0:
-                self.consumeEvent(int(self.bpmSample / self.updateRate))
-                self.updateBpmImage(int(self.bpmSample / self.updateRate), liveDataSample)
+            if bpmSample % self.updateRate == 0:
+                self.consumeEvent(int(bpmSample / self.updateRate))
+                self.updateBpmImage(int(bpmSample / self.updateRate), liveDataSample)
                 self.updateTimer()
-            self.bpmSample += 1
+            bpmSample += 1
         self.oximeter.disconnect()
         self.checkOximeterStatus()
 
@@ -209,7 +197,7 @@ class ReaderUI(QtWidgets.QMainWindow):
         self.versionCombo.addItem('v4.6')
         self.minuteField = QtWidgets.QSpinBox()
         self.minuteField.setRange(1, 15)
-        self.minuteField.setValue(5)
+        self.minuteField.setValue(config.dfltMinutes)
         self.minuteField.setFixedWidth(50)
         minuteLabel = QtWidgets.QLabel('min')
         minuteLabel.setFixedWidth(20)
@@ -242,11 +230,11 @@ class ReaderUI(QtWidgets.QMainWindow):
         controlLayout = QtWidgets.QVBoxLayout(controlWidget)
         controlLayout.addStretch(1)
         self.apneaButton = QtWidgets.QPushButton('Hold')
-        utils.setBorderColor(self.apneaButton, apneaColor)
+        utils.setBorderColor(self.apneaButton, config.apneaColor)
         self.contractionButton = QtWidgets.QPushButton('Contraction')
-        utils.setBorderColor(self.contractionButton, contractionColor)
+        utils.setBorderColor(self.contractionButton, config.contractionColor)
         self.breatheButton = QtWidgets.QPushButton('Breathe')
-        utils.setBorderColor(self.breatheButton, breatheColor)
+        utils.setBorderColor(self.breatheButton, config.breatheColor)
         self.resetButton = QtWidgets.QPushButton('Reset')
         controlLayout.addWidget(self.apneaButton)
         controlLayout.addWidget(self.contractionButton)
@@ -256,15 +244,15 @@ class ReaderUI(QtWidgets.QMainWindow):
         bottomLayout.addWidget(controlWidget, 0, 0, QtCore.Qt.AlignTop)
 
         # pulse image
-        self.pulseImage = QtGui.QImage(widthPulseImage, self.bmpImageSize.height(), QtGui.QImage.Format_RGB32)
-        self.pulseImage.fill(dfltBkgColor)
+        self.pulseImage = QtGui.QImage(config.widthPulseImage, self.bmpImageSize.height(), QtGui.QImage.Format_RGB32)
+        self.pulseImage.fill(config.dfltBkgColor)
         self.pulseImageHolder = QtWidgets.QLabel()
         self.pulseImageHolder.setPixmap(QtGui.QPixmap.fromImage(self.pulseImage))
         bottomLayout.addWidget(self.pulseImageHolder, 0, 1)
 
         # o2 bpm image
         self.bpmImage = QtGui.QImage(self.bmpImageSize, QtGui.QImage.Format_RGB32)
-        self.bpmImage.fill(dfltBkgColor)
+        self.bpmImage.fill(config.dfltBkgColor)
         self.bpmImageHolder = QtWidgets.QLabel()
         self.bpmImageHolder.setPixmap(QtGui.QPixmap.fromImage(self.bpmImage))
         bottomLayout.addWidget(self.bpmImageHolder, 0, 2)
@@ -335,10 +323,10 @@ class ReaderUI(QtWidgets.QMainWindow):
     def resizeEvent(self, event):
         if self.threadIsActive() is False and self.windowSize is not None:
             self.bpmImage = QtGui.QImage(self.bmpImageSize + self.size() - self.windowSize, QtGui.QImage.Format_RGB32)
-            self.bpmImage.fill(dfltBkgColor)
+            self.bpmImage.fill(config.dfltBkgColor)
             self.bpmImageHolder.setPixmap(QtGui.QPixmap.fromImage(self.bpmImage))
-            self.pulseImage = QtGui.QImage(widthPulseImage, self.bpmImage.height(), QtGui.QImage.Format_RGB32)
-            self.pulseImage.fill(dfltBkgColor)
+            self.pulseImage = QtGui.QImage(config.widthPulseImage, self.bpmImage.height(), QtGui.QImage.Format_RGB32)
+            self.pulseImage.fill(config.dfltBkgColor)
             self.pulseImageHolder.setPixmap(QtGui.QPixmap.fromImage(self.pulseImage))
 
     def refreshUI(self):

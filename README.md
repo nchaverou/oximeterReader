@@ -12,7 +12,7 @@ OximeterReader in under the [BSD 2-Clause "Simplified" License](LICENSE.txt).
 - Python 3.6
 - PySerial
 - PyQt5
-- Qt.py (included)
+- [Qt.py](https://github.com/mottosso/Qt.py) (included)
 
 ###
 ## Install
@@ -28,7 +28,7 @@ python -m pip install PyQt5
 ## Launch
 OximeterReader can be launched the following way:
 ```python
-py [main.py](main.py)
+py main.py
 ```
 
 ###
